@@ -4,6 +4,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"mydocker/container"
 	"os"
+	"strings"
 )
 
 // Run 执行具体 command
@@ -12,11 +13,22 @@ import (
 进程，然后在子进程中，调用/proc/self/exe,也就是调用自己，发送init参数，调用我们写的init方法，
 去初始化容器的一些资源。
 */
-func Run(tty bool, cmd string) {
-	parent := container.NewParentProcess(tty, cmd)
-	if err := parent.Start(); err != nil {
-		log.Error(err)
+func Run(tty bool, comArray []string) {
+	parent, writePipe := container.NewParentProcess(tty)
+	if parent == nil {
+		log.Errorf("New parent process error")
+		return
 	}
+	if err := parent.Start(); err != nil {
+		log.Errorf("Run parent.Start err:%v", err)
+	}
+	sendInitCommand(comArray, writePipe)
 	_ = parent.Wait()
-	os.Exit(-1)
+}
+
+func sendInitCommand(comArray []string, writePipe *os.File) {
+	command := strings.Join(comArray, " ") // 把命令拼起来
+	log.Infof("command all is %s", command)
+	_, _ = writePipe.WriteString(command) // 然后写到管道里
+	_ = writePipe.Close()
 }
