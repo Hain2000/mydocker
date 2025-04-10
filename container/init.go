@@ -1,23 +1,26 @@
 package container
 
 import (
-	"errors"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 )
 
 func RunContainerInitProcess() error {
-	mountProc()
 	// 从 pipe 中读取命令
 	cmdArray := readUserCommand()
 	if len(cmdArray) == 0 {
 		return errors.New("run container get user command error, cmdArray is nil")
 	}
+
+	setUpMount()
+
 	path, err := exec.LookPath(cmdArray[0]) // 找到对应的shell
 	if err != nil {
 		log.Errorf("Exec loop path error %v", err)
@@ -58,23 +61,67 @@ func readUserCommand() []string {
 	return strings.Split(msgStr, " ")
 }
 
-func mountProc() {
+func setUpMount() {
+	pwd, err := os.Getwd()
+	if err != nil {
+		log.Errorf("Get current location error %v", err)
+		return
+	}
+	log.Infof("Current location is %s", pwd)
 
-	// systemd 加入linux之后, mount namespace 就变成 shared by default, 所以你必须显示声明你要这个新的mount namespace独立。
-	// 即 mount proc 之前先把所有挂载点的传播类型改为 private，避免本 namespace 中的挂载事件外泄。
-	_ = unix.Mount("", "/", "", syscall.MS_PRIVATE|syscall.MS_REC, "")
-	// 如果不先做 private mount，会导致挂载事件外泄，后续再执行 mydocker 命令时 /proc 文件系统异常
-	// 可以执行 mount -t proc proc /proc 命令重新挂载来解决
-	// ---分割线---
-	// MS_NOEXEC 在本文件系统 许运行其程序。
-	// MS_NOSUID 在本系统中运行程序的时候， 允许 set-user-ID set-group-ID
-	// MS_NOD 所有 mount 的系统都会默认设定的参数。
+	// 容器隔离
+	// systemd 加入linux之后, mount namespace 就变成 shared by default, 所以你必须显示
+	// 声明你要这个新的mount namespace独立。
+	// 如果不先做 private mount，会导致挂载事件外泄，后续执行 pivotRoot 会出现 invalid argument 错误
+	err = unix.Mount("", "/", "", syscall.MS_PRIVATE|syscall.MS_REC, "")
 
-	// 相当于 mount -t proc proc /proc
-	// -t proc 指定挂载的文件系统类型是 proc
-	// 第二个 proc	挂载源（source），是一个名字，也可以写成 none
-	// 挂在到 /proc目录
+	err = pivotRoot(pwd)
+	if err != nil {
+		log.Errorf("pivotRoot failed,detail: %v", err)
+		return
+	}
 
+	// mount /proc
 	defaultMountFlags := syscall.MS_NOEXEC | syscall.MS_NOSUID | syscall.MS_NODEV
 	_ = unix.Mount("proc", "/proc", "proc", uintptr(defaultMountFlags), "")
+	// 由于前面 pivotRoot 切换了 rootfs，因此这里重新 mount 一下 /dev 目录
+	// tmpfs 是基于 件系 使用 RAM、swap 分区来存储。
+	// 不挂载 /dev，会导致容器内部无法访问和使用许多设备，这可能导致系统无法正常工作
+	unix.Mount("tmpfs", "/dev", "tmpfs", syscall.MS_NOSUID|syscall.MS_STRICTATIME, "mode=755")
+}
+
+func pivotRoot(root string) error {
+	/**
+	  NOTE：PivotRoot调用有限制，newRoot和oldRoot不能在同一个文件系统下。
+	  因此，为了使当前root的老root和新root不在同一个文件系统下，这里把root重新mount了一次。
+	  bind mount是把相同的内容换了一个挂载点的挂载方法
+	  让系统认为这个目录是一个独立的新空间，为后续操作做准备。
+	*/
+	if err := unix.Mount(root, root, "bind", syscall.MS_BIND|syscall.MS_REC, ""); err != nil {
+		return errors.Wrap(err, "mount rootfs to itself")
+	}
+	// 创建 rootfs/.pivot_root 相当于准备一个临时回收站，用来存放旧的操作系统根目录。
+	pivotDir := filepath.Join(root, ".pivot_root")
+	if err := os.Mkdir(pivotDir, 0777); err != nil {
+		return err
+	}
+	// 执行pivot_root调用,将系统rootfs切换到新的rootfs,
+	// PivotRoot调用会把 old_root挂载到pivotDir,也就是rootfs/.pivot_root,挂载点现在依然可以在mount命令中看到
+	// 把整个系统的根目录切换到新位置（比如从硬盘的 / 换成 /tmp/new_root），同时把旧的根目录打包存放到刚创建的回收站里。
+	if err := unix.PivotRoot(root, pivotDir); err != nil {
+		return errors.WithMessagef(err, "pivotRoot failed,new_root:%v old_put:%v", root, pivotDir)
+	}
+	// 修改当前的工作目录到根目录
+	if err := unix.Chdir("/"); err != nil {
+		return errors.WithMessage(err, "chdir to / failed")
+	}
+
+	// 最后再把old_root umount了，即 umount rootfs/.pivot_root
+	// 由于当前已经是在 rootfs 下了，就不能再用上面的rootfs/.pivot_root这个路径了,现在直接用/.pivot_root这个路径即可
+	pivotDir = filepath.Join("/", ".pivot_root")
+	if err := unix.Unmount(pivotDir, syscall.MNT_DETACH); err != nil {
+		return errors.WithMessage(err, "unmount pivot_root dir")
+	}
+	// 删除临时文件夹
+	return os.Remove(pivotDir)
 }
