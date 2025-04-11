@@ -9,7 +9,7 @@ import (
 	"syscall"
 )
 
-func NewParentProcess(tty bool) (*exec.Cmd, *os.File) {
+func NewParentProcess(tty bool, volume string) (*exec.Cmd, *os.File) {
 	readPipe, writePipe, err := os.Pipe() // cmd在readPipe读取数据
 	if err != nil {
 		log.Errorf("New pipe error %v", err)
@@ -29,15 +29,25 @@ func NewParentProcess(tty bool) (*exec.Cmd, *os.File) {
 	}
 	cmd.ExtraFiles = []*os.File{readPipe} //  让cmd使用readPipe FD
 	rootPath := "/root"
-	NewWorkSpace(rootPath)
+	NewWorkSpace(rootPath, volume)
 	cmd.Dir = path.Join(rootPath, "merged")
 	return cmd, writePipe
 }
 
-func NewWorkSpace(rootPath string) {
+func NewWorkSpace(rootPath, volume string) {
 	createLower(rootPath)
 	createDirs(rootPath)
 	mountOverlayFS(rootPath)
+
+	if volume != "" {
+		mntPath := path.Join(rootPath, "merged")
+		hostPath, containerPath, err := volumeExtract(volume)
+		if err != nil {
+			log.Errorf("extract volume failed，maybe volume parameter input is not correct，detail:%v", err)
+			return
+		}
+		mountVolume(mntPath, hostPath, containerPath)
+	}
 }
 
 // createLower 将busybox作为overlayfs的lower层
@@ -128,7 +138,19 @@ func umountOverlayFS(mntPath string) {
 	}
 }
 
-func DeleteWorkSpace(rootPath string) {
-	umountOverlayFS(path.Join(rootPath, "merged"))
+func DeleteWorkSpace(rootPath string, volume string) {
+	mntPath := path.Join(rootPath, "merged")
+
+	// 如果指定了volume则需要umount volume
+	// NOTE: 一定要要先 umount volume ，然后再删除目录，否则由于 bind mount 存在，删除临时目录会导致 volume 目录中的数据丢失。
+	if volume != "" {
+		_, containerPath, err := volumeExtract(volume)
+		if err != nil {
+			log.Errorf("extract volume failed，maybe volume parameter input is not correct，detail:%v", err)
+			return
+		}
+		umountVolume(mntPath, containerPath)
+	}
+	umountOverlayFS(mntPath)
 	deleteDirs(rootPath)
 }
