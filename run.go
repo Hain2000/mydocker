@@ -32,6 +32,7 @@ func Run(tty bool, comArray []string, res *subsystems.ResourceConfig) {
 
 	sendInitCommand(comArray, writePipe)
 	_ = parent.Wait()
+	container.DeleteWorkSpace("/root/")
 }
 
 func sendInitCommand(comArray []string, writePipe *os.File) {
