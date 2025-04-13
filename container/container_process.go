@@ -9,6 +9,25 @@ import (
 	"syscall"
 )
 
+const (
+	RUNNING       = "running"
+	STOP          = "stopped"
+	Exit          = "exited"
+	InfoLoc       = "/var/lib/mydocker/containers/"
+	InfoLocFormat = InfoLoc + "%s/"
+	ConfigName    = "config.json"
+	IDLength      = 10
+)
+
+type Info struct {
+	Pid         string `json:"pid"`        // 容器的init进程在宿主机上的 PID
+	Id          string `json:"id"`         // 容器Id
+	Name        string `json:"name"`       // 容器名
+	Command     string `json:"command"`    // 容器内init运行命令
+	CreatedTime string `json:"createTime"` // 创建时间
+	Status      string `json:"status"`     // 容器的状态
+}
+
 func NewParentProcess(tty bool, volume string) (*exec.Cmd, *os.File) {
 	readPipe, writePipe, err := os.Pipe() // cmd在readPipe读取数据
 	if err != nil {

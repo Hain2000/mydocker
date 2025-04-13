@@ -21,6 +21,15 @@ var commitCommand = cli.Command{
 	},
 }
 
+var listCommand = cli.Command{
+	Name:  "ps",
+	Usage: "list all the containers",
+	Action: func(context *cli.Context) error {
+		ListContainers()
+		return nil
+	},
+}
+
 var runCommand = cli.Command{
 	Name: "run",
 	Usage: `Create a container with namespace and cgroups limit
@@ -50,6 +59,14 @@ var runCommand = cli.Command{
 			Name:  "v",
 			Usage: "volume,e.g.: -v /ect/conf:/etc/conf",
 		},
+		cli.BoolFlag{
+			Name:  "d",
+			Usage: "detach container",
+		},
+		cli.StringFlag{
+			Name:  "name",
+			Usage: "container name，e.g.: -name mycontainer",
+		},
 	},
 	/*
 		这里是run命令执行的真正函数。
@@ -65,7 +82,15 @@ var runCommand = cli.Command{
 		for _, arg := range context.Args() {
 			cmdArray = append(cmdArray, arg)
 		}
+
 		tty := context.Bool("it")
+		detach := context.Bool("d")
+		if tty && detach {
+			return fmt.Errorf("it and d paramter can not both provided")
+		}
+		if !detach { // 如果不是指定后台运行，就默认前台运行
+			tty = true
+		}
 		resConf := &subsystems.ResourceConfig{
 			MemoryLimit:     context.String("mem"),
 			MemorySwapLimit: context.Int("memswap"),
@@ -74,7 +99,8 @@ var runCommand = cli.Command{
 		}
 		log.Info("resConf:", resConf)
 		volume := context.String("v")
-		Run(tty, cmdArray, resConf, volume)
+		containerName := context.String("name")
+		Run(tty, cmdArray, resConf, volume, containerName)
 		return nil
 	},
 }
