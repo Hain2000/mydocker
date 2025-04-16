@@ -73,3 +73,7 @@ func randStringBytes(n int) string {
 	}
 	return string(b)
 }
+
+func GetLogfile(containerId string) string {
+	return fmt.Sprintf(LogFile, containerId)
+}

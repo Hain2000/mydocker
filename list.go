@@ -45,7 +45,7 @@ func ListContainers() {
 			log.Errorf("Fprint error %v", err)
 		}
 	}
-	// Fulsh ???
+	// Flush 刷到os.Stdout中
 	if err = w.Flush(); err != nil {
 		log.Errorf("Flush error %v", err)
 	}
