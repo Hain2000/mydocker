@@ -16,9 +16,9 @@ var commitCommand = cli.Command{
 		if len(context.Args()) < 1 {
 			return fmt.Errorf("missing image name")
 		}
-		imageName := context.Args().Get(0)
-		commitContainer(imageName)
-		return nil
+		containerID := context.Args().Get(0)
+		imageName := context.Args().Get(1)
+		return commitContainer(containerID, imageName)
 	},
 }
 
@@ -96,6 +96,8 @@ var runCommand = cli.Command{
 		for _, arg := range context.Args() {
 			cmdArray = append(cmdArray, arg)
 		}
+		imageName := cmdArray[0]
+		cmdArray = cmdArray[1:]
 
 		tty := context.Bool("it")
 		detach := context.Bool("d")
@@ -114,7 +116,7 @@ var runCommand = cli.Command{
 		log.Info("resConf:", resConf)
 		volume := context.String("v")
 		containerName := context.String("name")
-		Run(tty, cmdArray, resConf, volume, containerName)
+		Run(tty, cmdArray, resConf, volume, containerName, imageName)
 		return nil
 	},
 }

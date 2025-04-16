@@ -69,11 +69,12 @@ func removeContainer(containerId string, force bool) {
 
 	switch containerInfo.Status {
 	case container.STOP: // STOP 状态容器直接删除即可
-		dirPath := fmt.Sprintf(container.InfoLocFormat, containerId)
-		if err = os.RemoveAll(dirPath); err != nil {
-			log.Errorf("Remove file %s error %v", dirPath, err)
+		// 先删除配置目录，再删除rootfs 目录
+		if err = container.DeleteContainerInfo(containerId); err != nil {
+			log.Errorf("Remove container [%s]'s config failed, detail: %v", containerId, err)
 			return
 		}
+		container.DeleteWorkSpace(containerId, containerInfo.Volume)
 	case container.RUNNING: // RUNNING 状态容器如果指定了 force 则先 stop 然后再删除
 		if !force {
 			log.Errorf("Couldn't remove running container [%s], Stop the container before attempting removal or"+
