@@ -31,7 +31,7 @@ type Info struct {
 	Volume      string `json:"volume"`     // 容器挂载的 volume
 }
 
-func NewParentProcess(tty bool, volume, containerId, imageName string) (*exec.Cmd, *os.File) {
+func NewParentProcess(tty bool, volume, containerId, imageName string, envSlice []string) (*exec.Cmd, *os.File) {
 	readPipe, writePipe, err := os.Pipe() // cmd在readPipe读取数据
 	if err != nil {
 		log.Errorf("New pipe error %v", err)
@@ -68,5 +68,6 @@ func NewParentProcess(tty bool, volume, containerId, imageName string) (*exec.Cm
 	cmd.ExtraFiles = []*os.File{readPipe} //  让cmd使用readPipe FD
 	NewWorkSpace(containerId, imageName, volume)
 	cmd.Dir = utils.GetMerged(containerId)
+	cmd.Env = append(os.Environ(), envSlice...)
 	return cmd, writePipe
 }
